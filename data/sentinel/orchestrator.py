@@ -1,12 +1,16 @@
 # orchestrator.py
 
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
+from datetime import datetime, timezone
+import uuid
 
 from data.sentinel.data_loader import load_config
+from data.sentinel.paths import PathResolver
 from data.sentinel.executor import (
     LoadExecutor,
     TransformExecutor,
     TesterExecutor,
+    WriteExecutor,
 )
 
 EXECUTOR_REGISTRY = {
@@ -23,6 +27,8 @@ class Orchestrator:
 
     def __init__(self, spark: SparkSession, config_path: str):
         self.spark = spark
+        self.path_resolver = PathResolver.from_env()
+        self.run_id = self._generate_run_id()
         self.config = load_config(config_path)
 
     def execute_steps(self):
@@ -40,8 +46,22 @@ class Orchestrator:
                         f"'{step.get('name', 'unnamed')}'. "
                         f"Supported types: {supported}"
                     )
-                executor_cls(self.spark, step).execute()
+                executor = executor_cls(self.spark, step, self.path_resolver, self.run_id)
+                result = executor.execute()
+
+                if step.get("write", False):
+                    dataframes = {}
+                    if isinstance(result, DataFrame):
+                        dataframes["output"] = result
+                    elif isinstance(result, dict):
+                        dataframes = result
+                    WriteExecutor(self.spark, step, dataframes, self.path_resolver, self.run_id).execute()
 
             except Exception as e:
                 print(f"Failed to execute step. See {e}")
                 raise
+
+    @staticmethod
+    def _generate_run_id() -> str:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        return f"{timestamp}-{uuid.uuid4().hex[:8]}"

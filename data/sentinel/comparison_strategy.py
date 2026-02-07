@@ -2,8 +2,10 @@
 
 from abc import ABC, abstractmethod
 from typing import Tuple
+from functools import reduce
+from operator import or_ as or_operator
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, coalesce, when
 
 
 class ComparisonStrategy(ABC):
@@ -47,42 +49,63 @@ class FullOuterJoinStrategy(ComparisonStrategy):
         join_cols: list[str],
         compare_cols: list[str]
     ) -> Tuple[DataFrame, DataFrame, DataFrame]:
+        if not join_cols:
+            raise ValueError("At least one join column is required.")
 
-        # Register DataFrames as temporary views
-        df_a.createOrReplaceTempView("df_a")
-        df_b.createOrReplaceTempView("df_b")
+        a = df_a.alias("a")
+        b = df_b.alias("b")
 
-        spark = df_a.sparkSession  # or df_b.sparkSession since they both exist at this point
-
-        # Construct the SQL query
-        join_condition = " AND ".join(
-            [f"a.{join_col} = b.{join_col}" for join_col in join_cols]
-        )
-
-        select_expressions = [
-            f"CASE WHEN a.{col} != b.{col} OR a.{col} IS NULL OR b.{col} IS NULL "
-            f"THEN 1 ELSE 0 END AS {col}_mismatch"
-            for col in compare_cols
+        join_condition = [
+            col(f"a.{join_col}") == col(f"b.{join_col}") for join_col in join_cols
         ]
 
-        select_clause = ", ".join(select_expressions)
+        joined_df = a.join(b, on=join_condition, how="fullouter")
 
-        sql_query = f"""
-        SELECT *, {select_clause}
-        FROM df_a a FULL OUTER JOIN df_b b
-        ON {join_condition}
-        """
+        def select_columns(df: DataFrame) -> DataFrame:
+            join_select = [
+                coalesce(col(f"a.{join_col}"), col(f"b.{join_col}")).alias(join_col)
+                for join_col in join_cols
+            ]
 
-        joined_df = spark.sql(sql_query)
+            compare_select = [
+                col(f"a.{col_name}").alias(f"a_{col_name}")
+                for col_name in compare_cols
+            ] + [
+                col(f"b.{col_name}").alias(f"b_{col_name}")
+                for col_name in compare_cols
+            ]
 
-        mismatches = joined_df.filter(
-            " OR ".join([f"{col}_mismatch = 1" for col in compare_cols])
+            mismatch_select = [
+                when(
+                    (col(f"a.{col_name}") != col(f"b.{col_name}"))
+                    | col(f"a.{col_name}").isNull()
+                    | col(f"b.{col_name}").isNull(),
+                    1,
+                ).otherwise(0).alias(f"{col_name}_mismatch")
+                for col_name in compare_cols
+            ]
+
+            return df.select(*join_select, *compare_select, *mismatch_select)
+
+        selected_df = select_columns(joined_df)
+
+        mismatch_filters = [
+            col(f"{col_name}_mismatch") == 1 for col_name in compare_cols
+        ]
+        mismatches = selected_df.filter(reduce(or_operator, mismatch_filters))
+
+        a_only = select_columns(
+            joined_df.filter(
+                col(f"b.{join_cols[0]}").isNull()
+                & col(f"a.{join_cols[0]}").isNotNull()
+            )
         )
-
-        # Identify A-only and B-only records
-        # Assumes at least one join column
-        a_only = joined_df.filter(col(f"b.{join_cols[0]}").isNull())
-        b_only = joined_df.filter(col(f"a.{join_cols[0]}").isNull())
+        b_only = select_columns(
+            joined_df.filter(
+                col(f"a.{join_cols[0]}").isNull()
+                & col(f"b.{join_cols[0]}").isNotNull()
+            )
+        )
 
         return mismatches, a_only, b_only
 

@@ -2,6 +2,7 @@
 
 from pyspark.sql import SparkSession, DataFrame
 import logging
+import os
 
 from data.sentinel.data_loader import load_data
 from data.sentinel.strategy_factory import StrategyFactory
@@ -12,9 +13,11 @@ class Executor:
     Base class for executors.
     """
 
-    def __init__(self, spark: SparkSession, config: dict):
+    def __init__(self, spark: SparkSession, config: dict, path_resolver, run_id: str):
         self.spark = spark
         self.config = config
+        self.path_resolver = path_resolver
+        self.run_id = run_id
 
     def execute(self):
         """
@@ -24,6 +27,28 @@ class Executor:
         raise NotImplementedError(
             "Execute method must be implemented in subclass"
         )
+
+
+class WriteExecutor(Executor):
+    def __init__(self, spark: SparkSession, config: dict, dataframes: dict, path_resolver, run_id: str):
+        super().__init__(spark, config, path_resolver, run_id)
+        self.dataframes = dataframes
+
+    def execute(self):
+        write_path = self.config.get("write_path")
+        write_format = self.config.get("write_format", "csv")
+
+        step_name = self.config.get("name", "unnamed")
+        base_dir = self.path_resolver.base_dir()
+        target_root = os.path.join(base_dir, self.run_id, step_name)
+
+        for name, df in self.dataframes.items():
+            target_path = target_root
+            if write_path:
+                target_path = os.path.join(target_root, write_path)
+            if len(self.dataframes) > 1:
+                target_path = os.path.join(target_path, name)
+            df.write.mode("overwrite").format(write_format).option("header", "true").save(target_path)
 
 
 class LoadExecutor(Executor):
@@ -37,18 +62,11 @@ class LoadExecutor(Executor):
         """
         try:
             step_name = self.config["name"]
-            file_path = self.config["path"]
+            file_path = self.path_resolver.resolve(self.config["path"])
             file_format = self.config["format"]
 
             df = load_data(file_path, file_format, self.spark)
             df.createOrReplaceTempView(step_name)
-
-            # consider moving write logic to a separate executor
-            if self.config.get("write", False):
-                file_path = self.config["write_path"]
-                file_format = self.config["write_format"]
-
-                df.write.mode("overwrite").format(file_format).save(file_path)
 
             return df
 
@@ -74,13 +92,6 @@ class TransformExecutor(Executor):
             df = self.spark.sql(query)
             df.createOrReplaceTempView(step_name)
 
-            # consider moving write logic to a separate executor
-            if self.config.get("write", False):
-                file_path = self.config["write_path"]
-                file_format = self.config["write_format"]
-
-                df.write.mode("overwrite").format(file_format).save(file_path)
-
             return df
 
         except Exception as e:
@@ -88,11 +99,11 @@ class TransformExecutor(Executor):
             raise
 
 class TesterExecutor(Executor):
-    def __init__(self, spark: SparkSession,config: dict):
-        super().__init__(spark,config)
+    def __init__(self, spark: SparkSession, config: dict, path_resolver, run_id: str):
+        super().__init__(spark, config, path_resolver, run_id)
         self.strategy = StrategyFactory.get_comparison_strategy(config)
 
-    def execute(self) -> tuple[DataFrame, DataFrame, DataFrame]:
+    def execute(self) -> dict:
         df_a_name = self.config['dataset_a']
         df_b_name = self.config['dataset_b']
         df_a = self.spark.table(df_a_name)
@@ -101,4 +112,4 @@ class TesterExecutor(Executor):
         mismatches.show() #Need to improve this later
         a_only.show()
         b_only.show()
-
+        return {"mismatches": mismatches, "a_only": a_only, "b_only": b_only}

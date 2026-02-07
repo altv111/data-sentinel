@@ -6,7 +6,6 @@ steps:
     path: "/home/alpha/Workspace/data-sentinel/data/sentinel/data/datasetA.csv"
     format: "csv"
     write: True
-    write_path: "/home/alpha/Workspace/data-sentinel/data/sentinel/data/datasetA_output.csv"
     write_format: "csv"
 
   - name: datasetB
@@ -17,12 +16,16 @@ steps:
   - name: transformA
     type: transform
     query: "SELECT *, price * 2 as price_doubled FROM datasetA"
-    write: False
+    write: True
+    write_format: "csv"
+
 
   - name: test_datasets
     type: test
     dataset_a: datasetA
     dataset_b: datasetB
+    write: True
+    write_format: "csv"
     join_columns: ["product"]
     compare_columns: ["price"]
     comparison_type: "full_outer_join"
