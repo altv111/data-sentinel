@@ -39,7 +39,7 @@ class WriteExecutor(Executor):
         write_format = self.config.get("write_format", "csv")
 
         step_name = self.config.get("name", "unnamed")
-        base_dir = self.path_resolver.base_dir()
+        base_dir = self.path_resolver.output_base_dir()
         target_root = os.path.join(base_dir, self.run_id, step_name)
 
         for name, df in self.dataframes.items():
@@ -62,7 +62,7 @@ class LoadExecutor(Executor):
         """
         try:
             step_name = self.config["name"]
-            file_path = self.path_resolver.resolve(self.config["path"])
+            file_path = self.path_resolver.resolve_input(self.config["path"], allow_cwd_fallback=True)
             file_format = self.config["format"]
 
             df = load_data(file_path, file_format, self.spark)

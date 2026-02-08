@@ -37,6 +37,8 @@ from datasentinel.cli import main as run
 from datasentinel.comparison_strategy import ComparisonStrategy
 ```
 
+Environment: `SENTINEL_HOME` sets the base directory for result writes. `SENTINEL_INPUT_HOME` sets the base directory for relative input paths in YAML.
+
 Note: install with `pip install datasentinel`, import as `datasentinel`.
 ## Upcoming
 - More asserts (currently only full recon with outer join strategy is supported)

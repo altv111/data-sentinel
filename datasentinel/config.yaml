@@ -3,14 +3,14 @@
 steps:
   - name: datasetA
     type: load
-    path: "/home/alpha/Workspace/datasentinel/datasentinel/data/datasetA.csv"
+    path: "datasentinel/data/datasetA.csv"
     format: "csv"
     write: True
     write_format: "csv"
 
   - name: datasetB
     type: load
-    path: "/home/alpha/Workspace/datasentinel/datasentinel/data/datasetB.csv"
+    path: "datasentinel/data/datasetB.csv"
     format: "csv"
 
   - name: transformA
