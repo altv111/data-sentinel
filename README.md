@@ -33,8 +33,7 @@ datasentinel datasentinel/config.yaml
 ```
 
 ```python
-from datasentinel.cli import main as run
-from datasentinel.comparison_strategy import ComparisonStrategy
+from datasentinel import run, ComparisonStrategy
 ```
 
 Environment: `SENTINEL_HOME` sets the base directory for result writes. `SENTINEL_INPUT_HOME` sets the base directory for relative input paths in YAML.
