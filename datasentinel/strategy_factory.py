@@ -1,6 +1,6 @@
 # strategy_factory.py
 
-from data.sentinel.comparison_strategy import (
+from datasentinel.comparison_strategy import (
     FullOuterJoinStrategy,
     ComparisonStrategy,
 )

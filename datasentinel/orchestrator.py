@@ -4,9 +4,9 @@ from pyspark.sql import SparkSession, DataFrame
 from datetime import datetime, timezone
 import uuid
 
-from data.sentinel.data_loader import load_config
-from data.sentinel.paths import PathResolver
-from data.sentinel.executor import (
+from datasentinel.data_loader import load_config
+from datasentinel.paths import PathResolver
+from datasentinel.executor import (
     LoadExecutor,
     TransformExecutor,
     TesterExecutor,

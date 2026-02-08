@@ -29,8 +29,15 @@ and clear failure reporting**, while staying close to Spark.
 
 ## Quick Start
 ```bash
-datasentinel config.yaml
+datasentinel datasentinel/config.yaml
 ```
+
+```python
+from datasentinel.cli import main as run
+from datasentinel.comparison_strategy import ComparisonStrategy
+```
+
+Note: install with `pip install datasentinel`, import as `datasentinel`.
 ## Upcoming
 - More asserts (currently only full recon with outer join strategy is supported)
 - More loaders 

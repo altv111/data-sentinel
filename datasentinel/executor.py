@@ -4,8 +4,8 @@ from pyspark.sql import SparkSession, DataFrame
 import logging
 import os
 
-from data.sentinel.data_loader import load_data
-from data.sentinel.strategy_factory import StrategyFactory
+from datasentinel.data_loader import load_data
+from datasentinel.strategy_factory import StrategyFactory
 
 
 class Executor:

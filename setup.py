@@ -6,21 +6,21 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(
-    name="data-sentinel",  # Replace with your package name
+    name="datasentinel",  # Replace with your package name
     version="0.1.0",  # Start with a semantic versioning
     author="Your Name",  # Replace with your name
     author_email="your.email@example.com",  # Replace with your email
     description="A library for comparing datasets.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/data-sentinel",  # Replace with your repo URL
+    url="https://github.com/altv111/datasentinel",  # Replace with your repo URL
     packages=find_packages(),
     package_data={
-        "data.sentinel": ["sentinel/*"],  # Include files in this directory
+        "datasentinel": ["data/*", "config.yaml"],
     },
     entry_points={
         "console_scripts": [
-            "data-sentinel=data.sentinel.cli:main"
+            "datasentinel=datasentinel.cli:main"
         ],
     },
     classifiers=[

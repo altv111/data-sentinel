@@ -1,8 +1,7 @@
 import sys
 
 from pyspark.sql import SparkSession
-from data.sentinel.orchestrator import Orchestrator
-from data.sentinel.strategy_factory import StrategyFactory
+from datasentinel.orchestrator import Orchestrator
 
 
 def main():
@@ -10,7 +9,7 @@ def main():
     Main entry point for the data-assert CLI.
     """
     if len(sys.argv) != 2:
-        print("Usage: assert_data <yaml_config_path>")
+        print("Usage: datasentinel <yaml_config_path>")
         sys.exit(1)
 
     config_path = sys.argv[1]
