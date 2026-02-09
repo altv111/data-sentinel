@@ -20,9 +20,16 @@ steps:
     write_format: "csv"
 
 
-  - name: test_datasets 
+  - name: test_high_price
     type: test   
     LHS_query: "SELECT * FROM transformA where price_doubled > 1000"        
+    write: True
+    write_format: "csv"
+    test: "IS_EMPTY"    
+
+  - name: test_low_price
+    type: test   
+    LHS_query: "SELECT * FROM transformA where price_doubled < 10"        
     write: True
     write_format: "csv"
     test: "IS_EMPTY"    

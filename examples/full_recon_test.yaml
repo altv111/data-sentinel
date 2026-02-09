@@ -29,4 +29,18 @@ steps:
     test: "full_recon"
     additional_attributes:
       join_columns: ["product"]
-      compare_columns: ["price"]
+      compare_columns:
+        price: {}
+  
+  - name: test_datasets_localfast
+    type: test
+    LHS: datasetA
+    RHS: datasetB
+    write: True
+    write_format: "csv"
+    test: "localfast_recon"
+    additional_attributes:
+      join_columns: ["product"]
+      compare_columns:
+        price:
+          tolerance: 0.01
