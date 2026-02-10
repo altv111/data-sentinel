@@ -11,6 +11,34 @@ from datasentinel.native_kernel import run_local_tolerance
 from pyspark.sql.functions import col, coalesce, when, abs as sql_abs
 
 
+def _spark_null_masks(left_col, right_col):
+    both_null = left_col.isNull() & right_col.isNull()
+    one_null = left_col.isNull() ^ right_col.isNull()
+    return both_null, one_null
+
+
+def _build_mismatch_expr(col_a, col_b, options):
+    tolerance = options.get("tolerance") if options else None
+    if tolerance is not None:
+        col_a_num = col_a.cast("double")
+        col_b_num = col_b.cast("double")
+        both_null, one_null = _spark_null_masks(col_a, col_b)
+        numeric_invalid = (
+            (col_a_num.isNull() & col_a.isNotNull())
+            | (col_b_num.isNull() & col_b.isNotNull())
+        )
+        numeric_mismatch = sql_abs(col_a_num - col_b_num) > float(tolerance)
+        return when(
+            both_null,
+            False,
+        ).otherwise(
+            one_null
+            | (~numeric_invalid & numeric_mismatch)
+            | (numeric_invalid & (col_a != col_b))
+        )
+    return ~col_a.eqNullSafe(col_b)
+
+
 class AssertStrategy(ABC):
     """
     Abstract base class for assert strategies.
@@ -100,10 +128,10 @@ class FullOuterJoinStrategy(ReconBaseStrategy):
             ]
 
             compare_select = [
-                col(f"a.{col_name}").alias(f"a_{col_name}")
+                col(f"a.{col_name}").alias(f"{col_name}_left")
                 for col_name in compare_cols
             ] + [
-                col(f"b.{col_name}").alias(f"b_{col_name}")
+                col(f"b.{col_name}").alias(f"{col_name}_right")
                 for col_name in compare_cols
             ]
 
@@ -112,22 +140,7 @@ class FullOuterJoinStrategy(ReconBaseStrategy):
                 col_a = col(f"a.{col_name}")
                 col_b = col(f"b.{col_name}")
                 options = compare_defs.get(col_name) or {}
-                tolerance = options.get("tolerance")
-                null_mismatch = col_a.isNull() | col_b.isNull()
-                if tolerance is not None:
-                    col_a_num = col_a.cast("double")
-                    col_b_num = col_b.cast("double")
-                    non_numeric_mismatch = (
-                        (col_a_num.isNull() & col_a.isNotNull())
-                        | (col_b_num.isNull() & col_b.isNotNull())
-                    )
-                    mismatch_expr = (
-                        null_mismatch
-                        | non_numeric_mismatch
-                        | (sql_abs(col_a_num - col_b_num) > float(tolerance))
-                    )
-                else:
-                    mismatch_expr = null_mismatch | (col_a != col_b)
+                mismatch_expr = _build_mismatch_expr(col_a, col_b, options)
                 mismatch_select.append(
                     when(mismatch_expr, 1).otherwise(0).alias(f"{col_name}_mismatch")
                 )
@@ -141,18 +154,10 @@ class FullOuterJoinStrategy(ReconBaseStrategy):
         ]
         mismatches = selected_df.filter(reduce(or_operator, mismatch_filters))
 
-        a_only = select_columns(
-            joined_df.filter(
-                col(f"b.{join_cols[0]}").isNull()
-                & col(f"a.{join_cols[0]}").isNotNull()
-            )
-        )
-        b_only = select_columns(
-            joined_df.filter(
-                col(f"a.{join_cols[0]}").isNull()
-                & col(f"b.{join_cols[0]}").isNotNull()
-            )
-        )
+        a_present = reduce(or_operator, [col(f"a.{c}").isNotNull() for c in join_cols])
+        b_present = reduce(or_operator, [col(f"b.{c}").isNotNull() for c in join_cols])
+        a_only = select_columns(joined_df.filter(a_present & ~b_present))
+        b_only = select_columns(joined_df.filter(b_present & ~a_present))
 
         mismatches_empty = mismatches.rdd.isEmpty()
         a_only_empty = a_only.rdd.isEmpty()
@@ -171,12 +176,12 @@ class FullOuterJoinStrategy(ReconBaseStrategy):
 
 # Alias strategy that supports per-column options (e.g., tolerances).
 class LocalFastReconStrategy(ReconBaseStrategy):
-    def assert_(self, df_left, df_right, config):
-        if df_right is None:
+    def assert_(self, df_a, df_b, config):
+        if df_b is None:
             raise ValueError("localfast_recon requires RHS dataset.")
         join_cols, compare_cols, compare_defs = self._parse_recon_attributes(config)
-        joined = self._join_local(df_left, df_right, join_cols, compare_cols)
-        joined_pd = joined.toPandas()
+        joined_df = self._join_local(df_a, df_b, join_cols, compare_cols)
+        joined_pd = joined_df.toPandas()
         result_col = run_local_tolerance(joined_pd, compare_defs)
         joined_pd["assert_result"] = result_col
         left_present = None
@@ -193,9 +198,9 @@ class LocalFastReconStrategy(ReconBaseStrategy):
         a_only_pd = joined_pd[left_present & (~right_present)]
         b_only_pd = joined_pd[right_present & (~left_present)]
 
-        spark = df_left.sparkSession
-        joined = spark.createDataFrame(joined_pd)
-        schema = joined.schema
+        spark = df_a.sparkSession
+        joined_df = spark.createDataFrame(joined_pd)
+        schema = joined_df.schema
         mismatches = (
             spark.createDataFrame(mismatches_pd)
             if not mismatches_pd.empty
@@ -219,7 +224,7 @@ class LocalFastReconStrategy(ReconBaseStrategy):
         return {
             "status": status,
             "dataframes": {
-                "joined": joined,
+                "joined": joined_df,
                 "mismatches": mismatches,
                 "a_only": a_only,
                 "b_only": b_only,
@@ -248,6 +253,7 @@ class LocalFastReconStrategy(ReconBaseStrategy):
             col(f"b.{col_name}").alias(f"{col_name}_right")
             for col_name in compare_cols
         ]
+        # Output includes join keys, join key sides, then compare pairs per column.
         return joined.select(*join_select, *join_side_select, *compare_select)
 
 

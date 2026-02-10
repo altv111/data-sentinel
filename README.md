@@ -27,6 +27,19 @@ and clear failure reporting**, while staying close to Spark.
 - CLI-driven execution
 - Designed for large datasets
 
+## Recon Strategy Semantics
+DataSentinel provides multiple recon strategies. The two main ones are:
+- `FullOuterJoinStrategy` (Spark-native join + per-row comparison)
+- `LocalFastReconStrategy` (Spark join + Pandas local tolerance kernel)
+
+They are aligned on null handling for compare columns:
+- Both nulls are treated as a match.
+- One-side null is a mismatch.
+
+Behavioral differences to be aware of:
+- No tolerance: `LocalFastReconStrategy` attempts numeric coercion even with `tol=0`. This means numeric-like strings (e.g., `"01"` vs `"1"`) can match locally, while `FullOuterJoinStrategy` treats them as different strings.
+- Tolerance present: `LocalFastReconStrategy` chooses numeric vs string comparison per column (if any non-numeric exists in the column, it falls back to string compare for all rows). `FullOuterJoinStrategy` chooses per row (numeric when both cast successfully, otherwise string compare for that row).
+
 ## Quick Start
 ```bash
 datasentinel datasentinel/config.yaml
@@ -78,4 +91,3 @@ Note: install with `pip install datasentinel`, import as `datasentinel`.
 - More loaders 
 - Improved CLI
 - Concurrent executors (bsed on depends_on in yaml)
-

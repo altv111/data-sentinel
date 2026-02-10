@@ -9,6 +9,14 @@ def _null_mask(arr):
         return arr == None
 
 
+def _null_masks(left_arr, right_arr):
+    left_is_null = _null_mask(left_arr)
+    right_is_null = _null_mask(right_arr)
+    both_null = left_is_null & right_is_null
+    one_null = left_is_null ^ right_is_null
+    return left_is_null, right_is_null, both_null, one_null
+
+
 def _coerce_numeric(arr):
     try:
         return arr.astype(float)
@@ -37,9 +45,7 @@ def run_local_tolerance(
         left = joined_df[left_col].to_numpy()
         right = joined_df[right_col].to_numpy()
         # null handling
-        left_is_null = _null_mask(left)
-        right_is_null = _null_mask(right)
-        both_null = left_is_null & right_is_null
+        left_is_null, right_is_null, both_null, one_null = _null_masks(left, right)
 
         # initialize column result as False
         col_result = np.zeros(len(joined_df), dtype=bool)
