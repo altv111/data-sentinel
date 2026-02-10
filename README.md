@@ -31,7 +31,7 @@ and clear failure reporting**, while staying close to Spark.
 DataSentinel provides multiple recon strategies. The two main ones are:
 - `FullOuterJoinStrategy` (Spark-native join + per-row comparison)
 - `LocalFastReconStrategy` (Spark join + Pandas local tolerance kernel)
-- `ArrowReconStrategy` (row-level inference only; Arrow/C++ backend planned)
+- `ArrowReconStrategy` (experimental; row-level inference only; requires native Arrow extension)
 
 They are aligned on null handling for compare columns:
 - Both nulls are treated as a match.
@@ -55,6 +55,10 @@ Modes:
 - `row_infer`: Compare numerically when both values cast to numeric for that row; otherwise compare as strings for that row.
 - `numeric`: Always compare numerically; non-numeric values are treated as mismatches.
 - `string`: Always compare as strings; tolerance is ignored.
+
+Design notes for the Arrow-backed strategy live in `docs/arrow_recon.md`.
+Enable Arrow recon with `DATASENTINEL_ARROW=1` and install the native extension. This is optional;
+if you do not use `arrow_recon`, the rest of the package works normally.
 
 ## Quick Start
 ```bash

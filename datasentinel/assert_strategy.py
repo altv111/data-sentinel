@@ -248,22 +248,80 @@ class FullOuterJoinStrategy(ReconBaseStrategy):
 # using the existing Spark expression path.
 class ArrowReconStrategy(FullOuterJoinStrategy):
     def assert_(self, df_a: DataFrame, df_b: Optional[DataFrame], attributes: dict):
+        import os
+        if os.environ.get("DATASENTINEL_ARROW") != "1":
+            raise ValueError(
+                "ArrowReconStrategy requires DATASENTINEL_ARROW=1 and the "
+                "datasentinel_arrow extension installed."
+            )
         if df_b is None:
             raise ValueError("arrow_recon requires RHS dataset.")
+        from datasentinel.arrow_kernel import build_arrow_compare_udf
+
         attrs = dict(attributes) if attributes is not None else {}
-        compare_cols = attrs.get("compare_columns")
-        if isinstance(compare_cols, dict):
-            updated = {}
-            for name, options in compare_cols.items():
-                options = dict(options or {})
-                options["semantics"] = "row_infer"
-                updated[name] = options
-            attrs["compare_columns"] = updated
-        elif isinstance(compare_cols, (list, tuple)):
-            attrs["compare_columns"] = {
-                name: {"semantics": "row_infer"} for name in compare_cols
-            }
-        return super().assert_(df_a, df_b, attrs)
+        join_cols, compare_cols, compare_defs = self._parse_recon_attributes(attrs)
+        for name in compare_cols:
+            options = compare_defs.get(name) or {}
+            options["semantics"] = "row_infer"
+            compare_defs[name] = options
+
+        a = df_a.alias("a")
+        b = df_b.alias("b")
+        join_condition = [
+            col(f"a.{join_col}") == col(f"b.{join_col}") for join_col in join_cols
+        ]
+        joined_df = a.join(b, on=join_condition, how="fullouter")
+        compare_udf = build_arrow_compare_udf(compare_cols, compare_defs)
+        udf_args = []
+        for name in compare_cols:
+            udf_args.append(col(f"a.{name}"))
+            udf_args.append(col(f"b.{name}"))
+        with_matches = joined_df.withColumn("_matches", compare_udf(*udf_args))
+
+        def select_columns(df: DataFrame) -> DataFrame:
+            join_select = [
+                coalesce(col(f"a.{join_col}"), col(f"b.{join_col}")).alias(join_col)
+                for join_col in join_cols
+            ]
+            compare_select = [
+                col(f"a.{col_name}").alias(f"{col_name}_left")
+                for col_name in compare_cols
+            ] + [
+                col(f"b.{col_name}").alias(f"{col_name}_right")
+                for col_name in compare_cols
+            ]
+            mismatch_select = [
+                when(~col(f"_matches.{col_name}_match"), 1)
+                .otherwise(0)
+                .alias(f"{col_name}_mismatch")
+                for col_name in compare_cols
+            ]
+            return df.select(*join_select, *compare_select, *mismatch_select)
+
+        selected_df = select_columns(with_matches)
+
+        mismatch_filters = [
+            col(f"{col_name}_mismatch") == 1 for col_name in compare_cols
+        ]
+        mismatches = selected_df.filter(reduce(or_operator, mismatch_filters))
+        a_present = reduce(or_operator, [col(f"a.{c}").isNotNull() for c in join_cols])
+        b_present = reduce(or_operator, [col(f"b.{c}").isNotNull() for c in join_cols])
+        a_only = select_columns(with_matches.filter(a_present & ~b_present))
+        b_only = select_columns(with_matches.filter(b_present & ~a_present))
+
+        mismatches_empty = mismatches.rdd.isEmpty()
+        a_only_empty = a_only.rdd.isEmpty()
+        b_only_empty = b_only.rdd.isEmpty()
+        status = "PASS" if mismatches_empty and a_only_empty and b_only_empty else "FAIL"
+
+        return {
+            "status": status,
+            "dataframes": {
+                "mismatches": mismatches,
+                "a_only": a_only,
+                "b_only": b_only,
+            },
+        }
 
 
 # Alias strategy that supports per-column options (e.g., tolerances).

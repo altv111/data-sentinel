@@ -44,3 +44,17 @@ steps:
       compare_columns:
         price:
           tolerance: 0.01
+
+  - name: test_datasets_arrow
+    type: test
+    LHS: datasetA
+    RHS: datasetB
+    write: True
+    write_format: "csv"
+    test: "arrow_recon"
+    additional_attributes:
+      join_columns: ["product"]
+      compare_columns:
+        price:
+          tolerance: 0.01
+          semantics: row_infer
