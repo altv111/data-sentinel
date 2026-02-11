@@ -31,6 +31,7 @@ setup(
     python_requires=">=3.7",  # Specify the minimum version of Python
     install_requires=[
         "pyspark>=3.4,<3.5",  # Spark 3.4.x for Java 11 compatibility
+        "pandas",
         "pyyaml",
     ],
 )
