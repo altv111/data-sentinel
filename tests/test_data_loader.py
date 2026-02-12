@@ -9,6 +9,11 @@ from datasentinel.data_loader import (
 )
 
 
+def _positional_args(mock_call):
+    # Python 3.7 call objects do not expose .args/.kwargs properties.
+    return mock_call[0]
+
+
 def test_get_driver_class_known():
     assert get_driver_class("oracle") == "oracle.jdbc.driver.OracleDriver"
     assert get_driver_class("postgres") == "org.postgresql.Driver"
@@ -47,7 +52,7 @@ def test_load_table_data_uses_query():
     )
 
     assert out == "df"
-    calls = [c.args for c in reader.option.call_args_list]
+    calls = [_positional_args(c) for c in reader.option.call_args_list]
     assert ("url", "jdbc:postgresql://localhost:5432/db") in calls
     assert ("driver", "org.postgresql.Driver") in calls
     assert ("query", "SELECT * FROM trade_pricing WHERE tradebook = 'X'") in calls
@@ -70,7 +75,7 @@ def test_load_table_data_uses_dbtable_and_extra_options():
     )
 
     assert out == "df"
-    calls = [c.args for c in reader.option.call_args_list]
+    calls = [_positional_args(c) for c in reader.option.call_args_list]
     assert ("dbtable", "TRADE_PRICING") in calls
     assert ("fetchsize", "1000") in calls
 
