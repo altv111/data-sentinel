@@ -105,6 +105,41 @@ You can also provide queries instead of view names:
   test: IS_SUBSET_OF
 ```
 
+## JDBC Loads
+Load steps support JDBC sources with either a full table read or a query read.
+
+Required fields for JDBC load steps:
+- `format: jdbc`
+- `db_type` (supported: `oracle`, `hive`, `postgres`)
+- `connection_string`
+- exactly one of `table_name` or `query`
+
+Optional fields:
+- `driver` (overrides the default driver inferred from `db_type`)
+- `jdbc_options` (key/value options passed to Spark JDBC reader, e.g. `fetchsize`)
+
+Example: query-based load
+```yaml
+- name: trade_pricing_filtered
+  type: load
+  format: jdbc
+  db_type: postgres
+  connection_string: jdbc:postgresql://host:5432/riskdb
+  query: "SELECT * FROM trade_pricing WHERE trade_date = '2026-02-12' AND tradebook = 'EQD'"
+```
+
+Example: full-table load
+```yaml
+- name: trade_pricing_all
+  type: load
+  format: jdbc
+  db_type: postgres
+  connection_string: jdbc:postgresql://host:5432/riskdb
+  table_name: trade_pricing
+  jdbc_options:
+    fetchsize: "1000"
+```
+
 Note: install with `pip install datasentinel`, import as `datasentinel`.
 ## Upcoming
 - More asserts and built-in SQL conditions

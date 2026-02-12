@@ -4,7 +4,7 @@ from pyspark.sql import SparkSession, DataFrame
 import logging
 import os
 
-from datasentinel.data_loader import load_data
+from datasentinel.data_loader import load_data, load_table_data
 from datasentinel.strategy_factory import StrategyFactory
 
 
@@ -62,10 +62,23 @@ class LoadExecutor(Executor):
         """
         try:
             step_name = self.config["name"]
-            file_path = self.path_resolver.resolve_input(self.config["path"], allow_cwd_fallback=True)
             file_format = self.config["format"]
-
-            df = load_data(file_path, file_format, self.spark)
+            if file_format == "jdbc":
+                df = load_table_data(
+                    db_type=self.config["db_type"],
+                    connection_string=self.config["connection_string"],
+                    spark=self.spark,
+                    table_name=self.config.get("table_name"),
+                    query=self.config.get("query"),
+                    jdbc_options=self.config.get("jdbc_options"),
+                    driver=self.config.get("driver"),
+                )
+            else:
+                file_path = self.path_resolver.resolve_input(
+                    self.config["path"],
+                    allow_cwd_fallback=True,
+                )
+                df = load_data(file_path, file_format, self.spark)
             df.createOrReplaceTempView(step_name)
 
             return df

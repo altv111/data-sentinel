@@ -35,6 +35,7 @@ class Orchestrator:
         """
         Executes the steps defined in the configuration.
         """
+        failed_tests = []
         for step in self.config["steps"]:
             try:
                 step_type = step["type"]
@@ -48,6 +49,9 @@ class Orchestrator:
                     )
                 executor = executor_cls(self.spark, step, self.path_resolver, self.run_id)
                 result = executor.execute()
+                if step_type == "test" and isinstance(result, dict):
+                    if result.get("status") == "FAIL":
+                        failed_tests.append(step.get("name", "unnamed"))
 
                 if step.get("write", False):
                     dataframes = {}
@@ -63,6 +67,9 @@ class Orchestrator:
             except Exception as e:
                 print(f"Failed to execute step. See {e}")
                 raise
+        if failed_tests:
+            names = ", ".join(failed_tests)
+            raise RuntimeError(f"One or more tests failed: {names}")
 
     @staticmethod
     def _generate_run_id() -> str:

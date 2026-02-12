@@ -1,5 +1,6 @@
 from pyspark.sql import SparkSession, DataFrame
 from abc import ABC, abstractmethod
+from typing import Dict, Optional
 import os
 import yaml
 
@@ -23,32 +24,48 @@ def load_data(file_path: str, file_format: str, spark: SparkSession) -> DataFram
 def load_table_data(
     db_type: str,
     connection_string: str,
-    table_name: str,
-    spark: SparkSession
+    spark: SparkSession,
+    table_name: Optional[str] = None,
+    query: Optional[str] = None,
+    jdbc_options: Optional[Dict[str, str]] = None,
+    driver: Optional[str] = None,
 ) -> DataFrame:
     """
-    Loads data from a database table into a Spark DataFrame.
+    Loads data from JDBC using either a table name or a SQL query.
 
     Args:
         db_type: Type of the database (e.g., "oracle", "hive", "postgres").
         connection_string: JDBC connection string.
-        table_name: Name of the table to load.
         spark: SparkSession.
+        table_name: Name of the table to load.
+        query: SQL query to execute and load.
+        jdbc_options: Extra JDBC reader options.
+        driver: Optional explicit JDBC driver classname (overrides db_type mapping).
 
     Returns:
-        A Spark DataFrame containing the data from the database table.
+        A Spark DataFrame containing the loaded JDBC data.
     """
-    if db_type in ("oracle", "hive", "postgres"):
-        df = (
-            spark.read.format("jdbc")
-            .option("url", connection_string)
-            .option("dbtable", table_name)
-            .option("driver", get_driver_class(db_type))
-            .load()
-        )
-    else:
+    if bool(table_name) == bool(query):
+        raise ValueError("Provide exactly one of table_name or query for JDBC load.")
+
+    driver_class = driver or get_driver_class(db_type)
+    if not driver_class:
         raise ValueError(f"Unsupported database type: {db_type}")
 
+    reader = (
+        spark.read.format("jdbc")
+        .option("url", connection_string)
+        .option("driver", driver_class)
+    )
+    if query:
+        reader = reader.option("query", query)
+    else:
+        reader = reader.option("dbtable", table_name)
+
+    for key, value in (jdbc_options or {}).items():
+        reader = reader.option(key, value)
+
+    df = reader.load()
     return df
 
 
@@ -58,7 +75,7 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def get_driver_class(db_type: str) -> str:
+def get_driver_class(db_type: str) -> Optional[str]:
     """Returns the driver class name for a given database type."""
     driver_classes = {
         "oracle": "oracle.jdbc.driver.OracleDriver",
