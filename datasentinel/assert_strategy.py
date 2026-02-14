@@ -100,9 +100,11 @@ class FullOuterJoinStrategy(ReconBaseStrategy):
         )
         if out.get("status") == "FAIL":
             if self._with_counts(attributes):
-                mismatches = out["dataframes"]["mismatches"].count()
-                a_only = out["dataframes"]["a_only"].count()
-                b_only = out["dataframes"]["b_only"].count()
+                # Use pre-calculated counts from the kernel if available to avoid re-execution
+                counts = out.get("counts") or {}
+                mismatches = counts["mismatches"] if "mismatches" in counts else out["dataframes"]["mismatches"].count()
+                a_only = counts["a_only"] if "a_only" in counts else out["dataframes"]["a_only"].count()
+                b_only = counts["b_only"] if "b_only" in counts else out["dataframes"]["b_only"].count()
                 out["summary"] = f"mismatches={mismatches}, a_only={a_only}, b_only={b_only}"
             else:
                 out["summary"] = "failed with mismatches/a_only/b_only"

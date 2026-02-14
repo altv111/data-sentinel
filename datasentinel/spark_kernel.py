@@ -3,7 +3,7 @@ from operator import or_ as or_operator
 from typing import Dict, Any, Optional
 
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, coalesce, when, abs as sql_abs, max as sql_max
+from pyspark.sql.functions import col, coalesce, when, abs as sql_abs, max as sql_max, sum as sql_sum, lit
 
 
 def _spark_null_masks(left_col, right_col):
@@ -115,6 +115,12 @@ def run_full_outer_join_recon(
             coalesce(col(f"a.{join_col}"), col(f"b.{join_col}")).alias(join_col)
             for join_col in join_cols
         ]
+        
+        # Pass through presence flags for efficient aggregation
+        meta_select = [
+            reduce(or_operator, [col(f"a.{c}").isNotNull() for c in join_cols]).alias("__a_present"),
+            reduce(or_operator, [col(f"b.{c}").isNotNull() for c in join_cols]).alias("__b_present")
+        ]
 
         compare_select = [
             col(f"a.{col_name}").alias(f"{col_name}_left")
@@ -142,27 +148,47 @@ def run_full_outer_join_recon(
                 when(mismatch_expr, 1).otherwise(0).alias(f"{col_name}_mismatch")
             )
 
-        return df.select(*join_select, *compare_select, *mismatch_select)
+        return df.select(*join_select, *compare_select, *mismatch_select, *meta_select)
 
     selected_df = select_columns(joined_df)
 
     mismatch_filters = [
         col(f"{col_name}_mismatch") == 1 for col_name in compare_cols
     ]
-    mismatches = selected_df.filter(reduce(or_operator, mismatch_filters))
+    
+    # Define conditions
+    cond_mismatch = reduce(or_operator, mismatch_filters)
+    cond_a_present = col("__a_present")
+    cond_b_present = col("__b_present")
+    cond_a_only = cond_a_present & ~cond_b_present
+    cond_b_only = cond_b_present & ~cond_a_present
 
-    a_present = reduce(or_operator, [col(f"a.{c}").isNotNull() for c in join_cols])
-    b_present = reduce(or_operator, [col(f"b.{c}").isNotNull() for c in join_cols])
-    a_only = select_columns(joined_df.filter(a_present & ~b_present))
-    b_only = select_columns(joined_df.filter(b_present & ~a_present))
+    # Single-pass aggregation to get all counts and determine status
+    counts_row = selected_df.select(
+        sql_sum(when(cond_mismatch, 1).otherwise(0)).alias("mismatches"),
+        sql_sum(when(cond_a_only, 1).otherwise(0)).alias("a_only"),
+        sql_sum(when(cond_b_only, 1).otherwise(0)).alias("b_only")
+    ).collect()[0]
 
-    mismatches_empty = mismatches.rdd.isEmpty()
-    a_only_empty = a_only.rdd.isEmpty()
-    b_only_empty = b_only.rdd.isEmpty()
-    status = "PASS" if mismatches_empty and a_only_empty and b_only_empty else "FAIL"
+    counts = {
+        "mismatches": counts_row["mismatches"] or 0,
+        "a_only": counts_row["a_only"] or 0,
+        "b_only": counts_row["b_only"] or 0
+    }
+    
+    status = "PASS" if sum(counts.values()) == 0 else "FAIL"
+
+    # Materialize the specific dataframes for debugging/output
+    # We drop the internal meta columns for cleaner output
+    out_cols = [c for c in selected_df.columns if c not in ("__a_present", "__b_present")]
+    
+    mismatches = selected_df.filter(cond_mismatch).select(*out_cols)
+    a_only = selected_df.filter(cond_a_only).select(*out_cols)
+    b_only = selected_df.filter(cond_b_only).select(*out_cols)
 
     return {
         "status": status,
+        "counts": counts,
         "dataframes": {
             "mismatches": mismatches,
             "a_only": a_only,

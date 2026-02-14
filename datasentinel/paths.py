@@ -21,6 +21,9 @@ class PathResolver:
     def resolve_input(self, path: Optional[str], *, allow_cwd_fallback: bool = False) -> Optional[str]:
         if not path:
             return path
+        # Support distributed storage schemes (s3, hdfs, abfss, gs, etc.)
+        if "://" in path:
+            return path
         if os.path.isabs(path):
             return path
         if self.input_home:
